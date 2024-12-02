@@ -1,0 +1,20 @@
+﻿@page "/"
+@using Microsoft.AspNetCore.SignalR.Client
+@inject NavigationManager Navigation
+<PageTitle>Home</PageTitle>
+
+<div class="container mt-5">
+    <div class="input-group mb-3">
+        <input type="text" class="form-control" @bind="userName" placeholder="Kullanici adinizi giriniz..." />
+        <button class="btn btn-primary" @onclick="HandleSendButtonClickAsync">Baglan</button>
+    </div>
+</div>
+
+@code {
+    private string userName = string.Empty;
+
+    private void HandleSendButtonClickAsync()
+    {
+        Navigation.NavigateTo($"/chat/{userName}");
+    }
+}

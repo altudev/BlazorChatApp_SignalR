@@ -1,0 +1,77 @@
+﻿@page "/chat/{UserName}"
+
+@using Microsoft.AspNetCore.SignalR.Client
+@using Shared
+<PageTitle>Home</PageTitle>
+
+<div class="container mt-5">
+    <h1 class="text-center">Hello, world!</h1>
+    <p class="text-center">Welcome to your new app.</p>
+
+    <div class="input-group mb-3">
+        <input type="text" class="form-control" @bind="message" placeholder="Type your message here..." />
+        <button class="btn btn-primary" @onclick="HandleSendButtonClickAsync">Gonder</button>
+    </div>
+
+    <div class="mt-4">
+        @foreach (var msg in messages)
+        {
+            <div class="alert alert-secondary">
+                <strong>@msg.UserName:</strong> @msg.Content
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, SupplyParameterFromQuery]
+    public string UserName { get; set; }
+    private string message = string.Empty;
+    private List<Message> messages = new();
+    private HubConnection? hubConnection;
+
+    protected override async Task OnInitializedAsync()
+    {
+        hubConnection = new HubConnectionBuilder()
+        .WithUrl($"http://localhost:5096/hubs/chatHub?userName={UserName}")
+        .WithAutomaticReconnect()
+        .Build();
+
+        hubConnection.On<string, string>("ReceiveMessage", (userName, message) =>
+        {
+            messages.Add(new Message(userName, message));
+
+            StateHasChanged();
+        });
+
+        hubConnection.On<string>("UserConnected", userName =>
+        {
+            messages.Add(new Message("System", $"{userName} baglandi. ❤️"));
+
+            StateHasChanged();
+        });
+
+        hubConnection.On<List<Message>>("ReceiveMessages", receivedMessages =>
+        {
+            messages = receivedMessages;
+
+            StateHasChanged();
+        });
+
+        hubConnection.On<string>("UserDisconnected", userName =>
+        {
+            messages.Add(new Message("System", $"{userName} baglantisi kesildi. 😭"));
+
+            StateHasChanged();
+        });
+
+        await hubConnection.StartAsync();
+    }
+
+    private async Task HandleSendButtonClickAsync()
+    {
+        await hubConnection.InvokeAsync("SendMessageAsync", UserName, message);
+
+        messages.Add(new Message(UserName, message));
+    }
+}
