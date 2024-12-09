@@ -1,3 +1,3 @@
 namespace Shared;
 
-public sealed record Message(string UserName, string Content);
+public sealed record Message(Guid LobbyId,User User, string Content);

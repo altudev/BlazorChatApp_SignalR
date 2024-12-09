@@ -1,0 +1,271 @@
+@page "/lobby/{UserName}"
+@using Microsoft.AspNetCore.SignalR.Client
+@using Shared
+@implements IAsyncDisposable
+
+@if(joinedLobby is null){
+    <div class="container-fluid mt-4">
+    <h3 class="mb-4">Welcome, @UserName!</h3>
+
+    <div class="row">
+        <!-- Connected Users List -->
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="card-title mb-0">Connected Users</h5>
+                </div>
+                <div class="card-body">
+                    <div class="list-group">
+                        @foreach (var user in connnectedUsers)
+                        {
+                            <div class="list-group-item">
+                                <i class="bi bi-person-fill me-2"></i>
+                                @user.userName
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Lobbies List -->
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header bg-success text-white">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h5 class="card-title mb-0">Available Lobbies</h5>
+                        <button class="btn btn-outline-light btn-sm" @onclick="() => showCreateLobby = true">
+                            <i class="bi bi-plus-circle me-1"></i>Create Lobby
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    @if (showCreateLobby)
+                    {
+                        <div class="mb-3">
+                            <div class="input-group">
+                                <input type="text" class="form-control" placeholder="Enter lobby name..."
+                                       @bind="newLobbyName" @bind:event="oninput"
+                                       @onkeypress="HandleCreateLobbyKeyPress" />
+                                <button class="btn btn-success" @onclick="CreateLobby">
+                                    <i class="bi bi-check-lg"></i>
+                                </button>
+                                <button class="btn btn-outline-secondary" @onclick="() => showCreateLobby = false">
+                                    <i class="bi bi-x-lg"></i>
+                                </button>
+                            </div>
+                        </div>
+                    }
+                    <div class="list-group">
+                        @foreach (var lobby in lobbies)
+                        {
+                            <div class="list-group-item d-flex justify-content-between align-items-center">
+                                <div>
+                                    <h6 class="mb-0">@lobby.Name</h6>
+                                    <small class="text-muted">Created by @lobby.Creator.userName</small>
+                                </div>
+                                <div>
+                                    <button class="btn btn-primary btn-sm me-2" @onclick="() => JoinLobby(lobby)">
+                                        <i class="bi bi-box-arrow-in-right me-1"></i>Join
+                                    </button>
+                                    <span class="badge bg-primary rounded-pill">
+                                        @lobby.Users.Count user@(lobby.Users.Count == 1 ? "" : "s")
+                                    </span>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+}else{
+    <div class="container-fluid mt-4">
+        <div class="card">
+            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                <div>
+                    <h5 class="mb-0">@joinedLobby.Name</h5>
+                    <small>Created by @joinedLobby.Creator.userName</small>
+                </div>
+                <button class="btn btn-outline-light" @onclick="LeaveLobby">
+                    <i class="bi bi-box-arrow-left me-2"></i>Leave
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <!-- Chat Messages -->
+                    <div class="col-md-9">
+                        <div class="chat-messages" style="height: 400px; overflow-y: auto;">
+                            @foreach (var message in joinedLobby.Messages)
+                            {
+                                <div class="mb-3 @(message.User.userName == UserName ? "text-end" : "")">
+                                    <small class="text-muted">@message.User.userName</small>
+                                    <div class="@(message.User.userName == UserName ? "bg-primary text-white" : "bg-light") p-2 rounded d-inline-block">
+                                        @message.Content
+                                    </div>
+                                    <small class="text-muted d-block">@DateTime.Now.ToString("HH:mm")</small>
+                                </div>
+                            }
+                        </div>
+                        <div class="mt-3">
+                            <div class="input-group">
+                                <input type="text" class="form-control" placeholder="Type your message..."
+                                       @bind="newMessage" @bind:event="oninput"
+                                       @onkeypress="HandleKeyPress" />
+                                <button class="btn btn-primary" @onclick="SendMessage">
+                                    <i class="bi bi-send-fill"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Online Users -->
+                    <div class="col-md-3">
+                        <div class="card">
+                            <div class="card-header bg-success text-white">
+                                <h6 class="mb-0">Online Users (@joinedLobby.Users.Count)</h6>
+                            </div>
+                            <div class="card-body p-0">
+                                <div class="list-group list-group-flush">
+                                    @foreach (var user in joinedLobby.Users)
+                                    {
+                                        <div class="list-group-item">
+                                            <i class="bi bi-person-fill me-2"></i>
+                                            @user.userName
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter,SupplyParameterFromQuery]
+    public string UserName { get; set; }
+
+    private List<User> connnectedUsers = new();
+    private List<Shared.Lobby> lobbies = new();
+    
+    private Shared.Lobby? joinedLobby = null;
+
+    private HubConnection? hubConnection;
+
+    protected override async Task OnInitializedAsync()
+    {
+        hubConnection = new HubConnectionBuilder()
+        .WithUrl($"http://localhost:5096/hubs/chatHub?userName={UserName}")
+        .WithAutomaticReconnect()
+        .Build();
+
+        hubConnection.On<InitialValuesDto>("GetInitialValues", (initialValuesDto) =>
+        {
+            connnectedUsers = initialValuesDto.ConnectedUsers;
+
+            lobbies = initialValuesDto.Lobbies;
+
+            StateHasChanged();
+        });
+
+        hubConnection.On<User>("UserConnected", (user) =>
+        {
+            connnectedUsers.Add(user);
+
+            StateHasChanged();
+        });
+
+        hubConnection.On<User>("UserDisconnected", (user) =>
+        {
+            connnectedUsers.Remove(user);
+
+            StateHasChanged();
+        });
+
+        hubConnection.On<Shared.Lobby>("NewLobbyCreated", (lobby) =>
+        {
+            lobbies.Add(lobby);
+
+            StateHasChanged();
+        });
+
+        hubConnection.On<Shared.Lobby,User>("UserJoinedLobby", (lobby,user) =>
+        {
+            var message = new Message(lobby.Id,user, $"{UserName} has joined the lobby.");
+
+            lobby.Messages.Add(message);
+            
+            StateHasChanged();
+        });
+
+        await hubConnection.StartAsync();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if(hubConnection is not null)
+            await hubConnection.DisposeAsync();
+    }
+
+    private string newMessage = string.Empty;
+
+    private async Task SendMessage()
+    {
+        if (string.IsNullOrWhiteSpace(newMessage) || hubConnection is null || joinedLobby is null)
+            return;
+
+        await hubConnection.SendAsync("SendMessageAsync", joinedLobby.Id, newMessage);
+        newMessage = string.Empty;
+    }
+
+    private async Task HandleKeyPress(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await SendMessage();
+        }
+    }
+
+    private void LeaveLobby()
+    {
+        joinedLobby = null;
+        StateHasChanged();
+    }
+
+    private bool showCreateLobby = false;
+    private string newLobbyName = string.Empty;
+
+    private async Task CreateLobby()
+    {
+        if (string.IsNullOrWhiteSpace(newLobbyName) || hubConnection is null)
+            return;
+
+       joinedLobby = await hubConnection.InvokeAsync<Shared.Lobby>("CreateLobby", newLobbyName);
+
+        showCreateLobby = false;
+
+        newLobbyName = string.Empty;
+    }
+
+    private async Task HandleCreateLobbyKeyPress(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await CreateLobby();
+        }
+    }
+
+    private async Task JoinLobby(Shared.Lobby lobby)
+    {
+        if (hubConnection is null) return;
+        
+        await hubConnection.SendAsync("JoinLobby", lobby.Id);
+
+        joinedLobby = lobby;
+
+        StateHasChanged();
+    }
+}
